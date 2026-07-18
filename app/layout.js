@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Greeting App",
-  description: "入力した名前に合わせてあいさつを返す Next.js アプリ",
+  title: "Snake Bird Mini",
+  description: "スネークバード風ミニゲームを遊べる Next.js アプリ",
 };
 
 export default function RootLayout({ children }) {
