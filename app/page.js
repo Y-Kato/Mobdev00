@@ -18,13 +18,6 @@ const DIRECTION_VECTORS = {
   left: { x: -1, y: 0 },
 };
 
-const OPPOSITE_DIRECTION = {
-  up: "down",
-  right: "left",
-  down: "up",
-  left: "right",
-};
-
 const ROCK_SET = new Set(ROCKS.map((rock) => `${rock.x},${rock.y}`));
 
 function randomFruitCell(snake) {
@@ -52,7 +45,6 @@ function createInitialGame() {
 
   return {
     snake,
-    direction: "right",
     fruit: randomFruitCell(snake),
     score: 0,
     status: "playing",
@@ -71,31 +63,41 @@ function isCollision(cell, snakeBody) {
   return snakeBody.some((segment) => segment.x === cell.x && segment.y === cell.y);
 }
 
+function canFall(snake) {
+  return snake.every((segment) => {
+    const nextY = segment.y + 1;
+    if (nextY >= GRID_SIZE) {
+      return false;
+    }
+
+    return !ROCK_SET.has(`${segment.x},${nextY}`);
+  });
+}
+
+function applyGravity(snake) {
+  let nextSnake = snake;
+
+  while (canFall(nextSnake)) {
+    nextSnake = nextSnake.map((segment) => ({
+      x: segment.x,
+      y: segment.y + 1,
+    }));
+  }
+
+  return nextSnake;
+}
+
 export default function Home() {
   const [game, setGame] = useState(() => createInitialGame());
 
-  const turnTo = useCallback((nextDirection) => {
-    setGame((prev) => {
-      if (prev.status !== "playing") {
-        return prev;
-      }
-
-      if (OPPOSITE_DIRECTION[prev.direction] === nextDirection || prev.direction === nextDirection) {
-        return prev;
-      }
-
-      return { ...prev, direction: nextDirection };
-    });
-  }, []);
-
-  const tick = useCallback(() => {
+  const performMove = useCallback((nextDirection) => {
     setGame((prev) => {
       if (prev.status !== "playing") {
         return prev;
       }
 
       const head = prev.snake[0];
-      const vector = DIRECTION_VECTORS[prev.direction];
+      const vector = DIRECTION_VECTORS[nextDirection];
       const nextHead = { x: head.x + vector.x, y: head.y + vector.y };
       const willEatFruit = nextHead.x === prev.fruit.x && nextHead.y === prev.fruit.y;
       const snakeWithoutTail = willEatFruit ? prev.snake : prev.snake.slice(0, -1);
@@ -104,14 +106,15 @@ export default function Home() {
         return { ...prev, status: "lost" };
       }
 
-      const nextSnake = [nextHead, ...snakeWithoutTail];
+      const movedSnake = [nextHead, ...snakeWithoutTail];
+      const groundedSnake = applyGravity(movedSnake);
 
       if (willEatFruit) {
         const nextScore = prev.score + 1;
         if (nextScore >= GOAL_SCORE) {
           return {
             ...prev,
-            snake: nextSnake,
+            snake: groundedSnake,
             score: nextScore,
             status: "won",
           };
@@ -119,48 +122,47 @@ export default function Home() {
 
         return {
           ...prev,
-          snake: nextSnake,
+          snake: groundedSnake,
           score: nextScore,
-          fruit: randomFruitCell(nextSnake),
+          fruit: randomFruitCell(groundedSnake),
         };
       }
 
       return {
         ...prev,
-        snake: nextSnake,
+        snake: groundedSnake,
       };
     });
   }, []);
 
   useEffect(() => {
-    const timerId = setInterval(tick, 170);
-    return () => clearInterval(timerId);
-  }, [tick]);
-
-  useEffect(() => {
     const onKeyDown = (event) => {
+      if (event.repeat) {
+        return;
+      }
+
       const key = event.key.toLowerCase();
       if (key === "arrowup" || key === "w") {
         event.preventDefault();
-        turnTo("up");
+        performMove("up");
       }
       if (key === "arrowright" || key === "d") {
         event.preventDefault();
-        turnTo("right");
+        performMove("right");
       }
       if (key === "arrowdown" || key === "s") {
         event.preventDefault();
-        turnTo("down");
+        performMove("down");
       }
       if (key === "arrowleft" || key === "a") {
         event.preventDefault();
-        turnTo("left");
+        performMove("left");
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [turnTo]);
+  }, [performMove]);
 
   const message = useMemo(() => {
     if (game.status === "won") {
@@ -169,7 +171,7 @@ export default function Home() {
     if (game.status === "lost") {
       return "ぶつかってしまいました。もう一度。";
     }
-    return "矢印キー / WASD で移動。フルーツを集めよう。";
+    return "1キーで1手進み、毎手の後に重力で落下します。";
   }, [game.status]);
 
   return (
@@ -177,7 +179,7 @@ export default function Home() {
       <section className="game-card" aria-labelledby="game-title">
         <p className="eyebrow">Snake Bird Mini</p>
         <h1 id="game-title">スネークバードゲーム</h1>
-        <p className="description">岩を避けながらフルーツを8個集めるとクリアです。</p>
+        <p className="description">入力ごとに1手進み、重力で落ちるパズルです。フルーツを8個集めるとクリア。</p>
 
         <div className="status-row" role="status" aria-live="polite">
           <span>Score: {game.score} / {GOAL_SCORE}</span>
@@ -213,10 +215,10 @@ export default function Home() {
         </div>
 
         <div className="controls" aria-label="モバイル操作ボタン">
-          <button type="button" onClick={() => turnTo("up")}>↑</button>
-          <button type="button" onClick={() => turnTo("left")}>←</button>
-          <button type="button" onClick={() => turnTo("down")}>↓</button>
-          <button type="button" onClick={() => turnTo("right")}>→</button>
+          <button type="button" onClick={() => performMove("up")}>↑</button>
+          <button type="button" onClick={() => performMove("left")}>←</button>
+          <button type="button" onClick={() => performMove("down")}>↓</button>
+          <button type="button" onClick={() => performMove("right")}>→</button>
         </div>
 
         <button
