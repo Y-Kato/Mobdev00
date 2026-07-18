@@ -3,13 +3,50 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const GRID_SIZE = 12;
-const GOAL_SCORE = 8;
 const ROCKS = [
-  { x: 4, y: 3 },
-  { x: 7, y: 4 },
-  { x: 3, y: 7 },
+  { x: 0, y: 11 },
+  { x: 1, y: 11 },
+  { x: 2, y: 11 },
+  { x: 3, y: 11 },
+  { x: 4, y: 11 },
+  { x: 5, y: 11 },
+  { x: 6, y: 11 },
+  { x: 7, y: 11 },
+  { x: 8, y: 11 },
+  { x: 9, y: 11 },
+  { x: 10, y: 11 },
+  { x: 11, y: 11 },
+  { x: 0, y: 8 },
+  { x: 1, y: 8 },
+  { x: 2, y: 8 },
+  { x: 3, y: 8 },
+  { x: 6, y: 8 },
+  { x: 7, y: 8 },
   { x: 8, y: 8 },
+  { x: 9, y: 8 },
+  { x: 10, y: 8 },
+  { x: 2, y: 5 },
+  { x: 3, y: 5 },
+  { x: 4, y: 5 },
+  { x: 5, y: 5 },
+  { x: 8, y: 4 },
+  { x: 9, y: 4 },
+  { x: 10, y: 4 },
 ];
+
+const INITIAL_SNAKE = [
+  { x: 2, y: 7 },
+  { x: 1, y: 7 },
+  { x: 0, y: 7 },
+];
+
+const INITIAL_FRUITS = [
+  { x: 4, y: 4 },
+  { x: 7, y: 7 },
+  { x: 9, y: 3 },
+];
+
+const GOAL_CELL = { x: 11, y: 10 };
 
 const DIRECTION_VECTORS = {
   up: { x: 0, y: -1 },
@@ -20,33 +57,16 @@ const DIRECTION_VECTORS = {
 
 const ROCK_SET = new Set(ROCKS.map((rock) => `${rock.x},${rock.y}`));
 
-function randomFruitCell(snake) {
-  const occupied = new Set(snake.map((segment) => `${segment.x},${segment.y}`));
-  const candidates = [];
-
-  for (let y = 0; y < GRID_SIZE; y += 1) {
-    for (let x = 0; x < GRID_SIZE; x += 1) {
-      const key = `${x},${y}`;
-      if (!occupied.has(key) && !ROCK_SET.has(key)) {
-        candidates.push({ x, y });
-      }
-    }
-  }
-
-  return candidates[Math.floor(Math.random() * candidates.length)] ?? { x: 0, y: 0 };
+function keyOf(cell) {
+  return `${cell.x},${cell.y}`;
 }
 
 function createInitialGame() {
-  const snake = [
-    { x: 2, y: 6 },
-    { x: 1, y: 6 },
-    { x: 0, y: 6 },
-  ];
-
   return {
-    snake,
-    fruit: randomFruitCell(snake),
-    score: 0,
+    snake: INITIAL_SNAKE,
+    fruits: INITIAL_FRUITS,
+    collected: 0,
+    moves: 0,
     status: "playing",
   };
 }
@@ -87,6 +107,30 @@ function applyGravity(snake) {
   return nextSnake;
 }
 
+function consumeFruit(head, fruits) {
+  const eatenIndex = fruits.findIndex((fruit) => fruit.x === head.x && fruit.y === head.y);
+  if (eatenIndex < 0) {
+    return {
+      fruits,
+      didEat: false,
+    };
+  }
+
+  const nextFruits = fruits.filter((_, index) => index !== eatenIndex);
+  return {
+    fruits: nextFruits,
+    didEat: true,
+  };
+}
+
+function isGoalReached(state) {
+  return (
+    state.fruits.length === 0 &&
+    state.snake[0].x === GOAL_CELL.x &&
+    state.snake[0].y === GOAL_CELL.y
+  );
+}
+
 export default function Home() {
   const [game, setGame] = useState(() => createInitialGame());
 
@@ -99,7 +143,7 @@ export default function Home() {
       const head = prev.snake[0];
       const vector = DIRECTION_VECTORS[nextDirection];
       const nextHead = { x: head.x + vector.x, y: head.y + vector.y };
-      const willEatFruit = nextHead.x === prev.fruit.x && nextHead.y === prev.fruit.y;
+      const willEatFruit = prev.fruits.some((fruit) => fruit.x === nextHead.x && fruit.y === nextHead.y);
       const snakeWithoutTail = willEatFruit ? prev.snake : prev.snake.slice(0, -1);
 
       if (isCollision(nextHead, snakeWithoutTail)) {
@@ -109,39 +153,37 @@ export default function Home() {
       const movedSnake = [nextHead, ...snakeWithoutTail];
       const groundedSnake = applyGravity(movedSnake);
 
-      if (willEatFruit) {
-        const nextScore = prev.score + 1;
-        if (nextScore >= GOAL_SCORE) {
-          return {
-            ...prev,
-            snake: groundedSnake,
-            score: nextScore,
-            status: "won",
-          };
-        }
+      const { fruits: remainingFruits, didEat } = consumeFruit(groundedSnake[0], prev.fruits);
+      const nextState = {
+        ...prev,
+        snake: groundedSnake,
+        fruits: remainingFruits,
+        collected: prev.collected + (didEat ? 1 : 0),
+        moves: prev.moves + 1,
+      };
 
+      if (isGoalReached(nextState)) {
         return {
-          ...prev,
-          snake: groundedSnake,
-          score: nextScore,
-          fruit: randomFruitCell(groundedSnake),
+          ...nextState,
+          status: "won",
         };
       }
 
-      return {
-        ...prev,
-        snake: groundedSnake,
-      };
+      return nextState;
     });
   }, []);
 
   useEffect(() => {
+    const pressedKeys = new Set();
+
     const onKeyDown = (event) => {
-      if (event.repeat) {
+      const rawKey = event.key.toLowerCase();
+      if (pressedKeys.has(rawKey)) {
         return;
       }
+      pressedKeys.add(rawKey);
 
-      const key = event.key.toLowerCase();
+      const key = rawKey;
       if (key === "arrowup" || key === "w") {
         event.preventDefault();
         performMove("up");
@@ -160,29 +202,43 @@ export default function Home() {
       }
     };
 
+    const onKeyUp = (event) => {
+      pressedKeys.delete(event.key.toLowerCase());
+    };
+
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, [performMove]);
 
   const message = useMemo(() => {
     if (game.status === "won") {
-      return "ゴール。フルーツを集めきって飛び立ちました。";
+      return "クリア。全フルーツ回収後にゴールへ到達しました。";
     }
     if (game.status === "lost") {
       return "ぶつかってしまいました。もう一度。";
     }
-    return "1キーで1手進み、毎手の後に重力で落下します。";
+    if (game.fruits.length > 0) {
+      return "1手ごとに重力が働きます。先にフルーツを全部回収してください。";
+    }
+    return "フルーツ回収完了。右下のゲートへ向かってください。";
   }, [game.status]);
+
+  const fruitSet = useMemo(() => new Set(game.fruits.map((fruit) => keyOf(fruit))), [game.fruits]);
 
   return (
     <main className="app-shell">
       <section className="game-card" aria-labelledby="game-title">
         <p className="eyebrow">Snake Bird Mini</p>
         <h1 id="game-title">スネークバードゲーム</h1>
-        <p className="description">入力ごとに1手進み、重力で落ちるパズルです。フルーツを8個集めるとクリア。</p>
+        <p className="description">固定ステージの重力パズルです。全フルーツ回収後にゲートへ入るとクリア。</p>
 
         <div className="status-row" role="status" aria-live="polite">
-          <span>Score: {game.score} / {GOAL_SCORE}</span>
+          <span>Fruits: {game.collected} / {INITIAL_FRUITS.length}</span>
+          <span>Moves: {game.moves}</span>
           <span>{message}</span>
         </div>
 
@@ -194,11 +250,12 @@ export default function Home() {
           {Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, index) => {
             const x = index % GRID_SIZE;
             const y = Math.floor(index / GRID_SIZE);
-            const isFruit = game.fruit.x === x && game.fruit.y === y;
+            const isFruit = fruitSet.has(`${x},${y}`);
             const snakeIndex = game.snake.findIndex((segment) => segment.x === x && segment.y === y);
             const isHead = snakeIndex === 0;
             const isBody = snakeIndex > 0;
             const isRock = ROCK_SET.has(`${x},${y}`);
+            const isGoal = GOAL_CELL.x === x && GOAL_CELL.y === y;
 
             const cellClass = [
               "cell",
@@ -206,6 +263,7 @@ export default function Home() {
               isBody ? "is-body" : "",
               isFruit ? "is-fruit" : "",
               isRock ? "is-rock" : "",
+              isGoal ? "is-goal" : "",
             ]
               .filter(Boolean)
               .join(" ");
